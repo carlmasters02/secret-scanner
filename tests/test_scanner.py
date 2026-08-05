@@ -2,6 +2,9 @@
 
 import json
 import io
+import subprocess
+
+import pytest
 
 from secretscanner.cli import main
 from secretscanner.report import mask
@@ -89,6 +92,58 @@ def test_nested_gitignore_applies_to_its_own_subtree(tmp_path):
     findings, _ = scan_path(str(tmp_path))
     assert len(findings) == 1
     assert "/b/" in findings[0].path
+
+
+def git_available():
+    try:
+        subprocess.run(["git", "--version"], capture_output=True)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(not git_available(), reason="git not installed")
+def test_ignore_rules_agree_with_git(tmp_path):
+    """Compare the walker against git's own answer.
+
+    Writing a .gitignore parser from scratch means guessing at the rules, so
+    the useful test is not "does it do what I think", it is "does it do what
+    git does". This builds a repo, asks git which files it would track, and
+    checks the walker reaches the same set.
+    """
+    (tmp_path / ".gitignore").write_text(
+        "# comments and blank lines are skipped\n"
+        "\n"
+        "secrets/\n"
+        "*.env\n"
+        "*.log\n"
+        "/toplevel_only.py\n"
+        "!important.log\n"
+        "src/generated.py\n"
+    )
+    for name in [
+        "src/app.py", "src/keep.py", "src/generated.py", "src/toplevel_only.py",
+        "secrets/leaked.py", "nested/secrets/deep.py",
+        "prod.env", "toplevel_only.py",
+        "logs/debug.log", "logs/important.log",
+    ]:
+        write(tmp_path, name, "x = 1\n")
+
+    run = lambda *args: subprocess.run(
+        ["git", "-C", str(tmp_path)] + list(args),
+        capture_output=True, text=True, check=True,
+    )
+    run("init", "-q")
+    tracked = run("add", "-An", "--dry-run", ".").stdout
+    expected = sorted(
+        line.split(" ", 1)[1].strip().strip("'")
+        for line in tracked.splitlines() if line.startswith("add ")
+    )
+
+    walked = sorted(
+        f.replace(str(tmp_path) + "/", "") for f in walk_files(str(tmp_path))
+    )
+    assert walked == expected
 
 
 def test_findings_are_sorted_by_file_then_line(tmp_path):

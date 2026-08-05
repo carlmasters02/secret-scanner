@@ -237,9 +237,22 @@ long random string that is not a secret. It is a smoke alarm, not a proof.
 
 ## Ignoring files
 
-`.gitignore` is respected by default, including nested `.gitignore` files,
-directory patterns, anchored patterns, and `!` negation. Pass `--no-gitignore`
-to scan everything.
+`.gitignore` is respected by default. Pass `--no-gitignore` to scan everything.
+
+Supported: comments and blank lines, plain names, globs like `*.env`, directory
+patterns like `build/`, patterns anchored with a leading slash like
+`/config.py`, patterns containing a slash like `src/generated.py`, `!`
+exceptions, and nested `.gitignore` files applying to their own subtree.
+
+Not supported: `**` for matching across directories, character ranges like
+`[abc]`, and git's full rule ordering (a later rule overriding an earlier one).
+Exceptions are checked before ignore rules instead, which gives the same answer
+for ordinary files and errs toward scanning a file rather than skipping it. For
+a tool whose job is finding secrets, scanning too much is the safer mistake.
+
+`tests/test_scanner.py` checks the walker against git itself: it builds a repo,
+asks `git add --dry-run` which files it would track, and asserts the walker
+reaches the same set.
 
 Some things are always skipped regardless: `.git`, `node_modules`, `venv`,
 `__pycache__` and similar directories, binary and media files, files over 2 MB,

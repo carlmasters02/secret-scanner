@@ -3,7 +3,7 @@
 import os
 
 from .entropy import find_entropy_matches
-from .gitignore import IgnoreStack
+from .gitignore import IgnoreList
 from .patterns import find_pattern_matches
 
 # Directories that are never worth scanning. These get skipped even without a
@@ -143,7 +143,7 @@ def walk_files(root, use_gitignore=True):
             yield root
         return
 
-    ignores = IgnoreStack(root) if use_gitignore else None
+    ignores = IgnoreList() if use_gitignore else None
 
     for dirpath, dirnames, filenames in os.walk(root):
         if ignores is not None and ".gitignore" in filenames:

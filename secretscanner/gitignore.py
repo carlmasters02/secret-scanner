@@ -1,133 +1,92 @@
 """Minimal .gitignore support.
 
-This is not a full implementation of git's ignore rules, but it covers what
-shows up in practice: comments, blank lines, directory-only patterns ending in
-a slash, patterns anchored with a leading slash, negation with "!", and the
-usual glob characters. Nested .gitignore files are picked up as the walk goes,
-and each one applies to its own directory and below.
+This is not all of git's ignore rules. It covers the parts that actually turn
+up in real .gitignore files: comments, blank lines, plain names, globs like
+"*.log", directory patterns ending in a slash, patterns anchored with a leading
+slash, and "!" exceptions. Nested .gitignore files are picked up as the walk
+goes and apply to their own directory and below.
+
+What is deliberately left out is listed in the README.
 """
 
+import fnmatch
 import os
-import re
 
 
-class IgnoreRule:
-    def __init__(self, pattern, base_dir):
-        self.negated = pattern.startswith("!")
-        if self.negated:
-            pattern = pattern[1:]
+def path_matches(pattern, rel_path, is_dir):
+    """Does one pattern match one path?
 
-        self.dir_only = pattern.endswith("/")
-        pattern = pattern.rstrip("/")
+    rel_path is relative to the directory that the .gitignore lives in, using
+    forward slashes.
+    """
+    dir_only = pattern.endswith("/")
+    pattern = pattern.rstrip("/")
 
-        # A slash anywhere except the end means the pattern is relative to the
-        # directory holding the .gitignore, not matched against basenames.
-        self.anchored = "/" in pattern
-        self.pattern = pattern.lstrip("/")
-        self.base_dir = base_dir
-        self.regex = _compile_pattern(self.pattern)
-
-    def matches(self, rel_path, is_dir):
-        if self.dir_only and not is_dir:
-            return False
-
-        if self.anchored:
-            return self.regex.match(rel_path) is not None
-
-        # Unanchored patterns match at any depth, so try each path segment.
-        parts = rel_path.split("/")
-        for i in range(len(parts)):
-            if self.regex.match("/".join(parts[i:])) is not None:
-                return True
-            if self.regex.match(parts[i]) is not None:
-                return True
+    if dir_only and not is_dir:
         return False
 
-    def __repr__(self):
-        return "IgnoreRule(%r)" % self.pattern
+    if pattern.startswith("/"):
+        # A leading slash anchors the pattern to the top of this directory, so
+        # "/build" matches ./build but not ./src/build.
+        return fnmatch.fnmatch(rel_path, pattern.lstrip("/"))
+
+    if "/" in pattern:
+        # Patterns with a slash inside them are matched against the whole path.
+        return fnmatch.fnmatch(rel_path, pattern)
+
+    # Everything else matches a name at any depth, so "*.log" catches
+    # ./debug.log and ./logs/debug.log alike.
+    return any(fnmatch.fnmatch(part, pattern) for part in rel_path.split("/"))
 
 
-def _compile_pattern(pattern):
-    """Turn a gitignore glob into a regex.
+class IgnoreList:
+    """The ignore rules collected so far while walking a tree.
 
-    fnmatch alone is not quite right because it lets "*" match across slashes,
-    so "*" and "**" are handled by hand and the rest is left to fnmatch.
-    """
-    out = []
-    i = 0
-    while i < len(pattern):
-        ch = pattern[i]
-        if ch == "*":
-            if pattern[i:i + 2] == "**":
-                out.append(".*")
-                i += 2
-                # Swallow the slash after "**/" so it can also match zero dirs.
-                if pattern[i:i + 1] == "/":
-                    i += 1
-                    out.append("/?")
-                continue
-            out.append("[^/]*")
-        elif ch == "?":
-            out.append("[^/]")
-        elif ch == "[":
-            end = pattern.find("]", i + 1)
-            if end == -1:
-                out.append(re.escape(ch))
-            else:
-                body = pattern[i + 1:end]
-                if body.startswith("!"):
-                    body = "^" + body[1:]
-                out.append("[" + body + "]")
-                i = end + 1
-                continue
-        else:
-            out.append(re.escape(ch))
-        i += 1
-    return re.compile("".join(out) + "(/.*)?$")
-
-
-def parse_gitignore(path, base_dir):
-    """Read one .gitignore file and return its rules."""
-    rules = []
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for raw in fh:
-                line = raw.rstrip("\n").strip()
-                if not line or line.startswith("#"):
-                    continue
-                rules.append(IgnoreRule(line, base_dir))
-    except OSError:
-        pass
-    return rules
-
-
-class IgnoreStack:
-    """Holds the rules collected so far while walking a tree.
-
-    Later rules win over earlier ones, which is how git resolves a "!" that
-    re-includes something an earlier line excluded.
+    Patterns starting with "!" are kept separately and checked first. Git
+    resolves those by rule order, which is fiddlier; checking exceptions first
+    gets the same answer for normal files and errs toward scanning a file
+    rather than skipping it, which is the safer mistake for this tool.
     """
 
-    def __init__(self, root):
-        self.root = os.path.abspath(root)
-        self.rules = []
+    def __init__(self):
+        self.rules = []       # (pattern, directory the rule came from)
+        self.exceptions = []  # same, for "!" patterns
 
     def add_file(self, gitignore_path):
+        """Read a .gitignore and add its rules."""
         base = os.path.dirname(os.path.abspath(gitignore_path))
-        self.rules.extend(parse_gitignore(gitignore_path, base))
+        try:
+            with open(gitignore_path, "r", encoding="utf-8",
+                      errors="replace") as fh:
+                lines = fh.readlines()
+        except OSError:
+            return
+
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("!"):
+                self.exceptions.append((line[1:], base))
+            else:
+                self.rules.append((line, base))
+
+    def relative_to(self, path, base):
+        """Path relative to base, or None if it is not inside base."""
+        rel = os.path.relpath(os.path.abspath(path), base)
+        if rel.startswith(".."):
+            return None
+        return rel.replace(os.sep, "/")
 
     def is_ignored(self, path, is_dir=False):
-        abs_path = os.path.abspath(path)
-        result = False
-        for rule in self.rules:
-            # A rule only applies to things inside the directory it came from.
-            try:
-                rel = os.path.relpath(abs_path, rule.base_dir)
-            except ValueError:
-                continue
-            if rel.startswith(".."):
-                continue
-            rel = rel.replace(os.sep, "/")
-            if rule.matches(rel, is_dir):
-                result = not rule.negated
-        return result
+        for pattern, base in self.exceptions:
+            rel = self.relative_to(path, base)
+            if rel is not None and path_matches(pattern, rel, is_dir):
+                return False
+
+        for pattern, base in self.rules:
+            rel = self.relative_to(path, base)
+            if rel is not None and path_matches(pattern, rel, is_dir):
+                return True
+
+        return False
