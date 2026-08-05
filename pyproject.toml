@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secret-scanner"
+version = "0.1.0"
+description = "CLI tool that scans a codebase for hardcoded secrets"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+secret-scanner = "secretscanner.cli:main"
+
+[tool.setuptools]
+packages = ["secretscanner"]
