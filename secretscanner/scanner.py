@@ -44,9 +44,13 @@ MAX_LINE_LENGTH = 500
 
 
 class Finding:
-    """One suspected secret at one place in one file."""
+    """One suspected secret at one place in one file.
 
-    def __init__(self, path, line_number, line_text, match):
+    commit is only set when the finding came from git history rather than from
+    a file on disk.
+    """
+
+    def __init__(self, path, line_number, line_text, match, commit=None):
         self.path = path
         self.line_number = line_number
         self.line = line_text.strip()
@@ -54,6 +58,7 @@ class Finding:
         self.value = match["value"]
         self.confidence = match["confidence"]
         self.entropy = match.get("entropy")
+        self.commit = commit
 
     def as_dict(self):
         d = {
@@ -65,6 +70,8 @@ class Finding:
         }
         if self.entropy is not None:
             d["entropy"] = self.entropy
+        if self.commit is not None:
+            d["commit"] = self.commit
         return d
 
     def __repr__(self):
