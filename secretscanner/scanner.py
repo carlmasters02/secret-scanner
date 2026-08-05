@@ -145,9 +145,16 @@ def walk_files(root):
 
 
 def scan_path(root, use_entropy=True):
-    """Scan a file or directory. Returns all findings, sorted by location."""
+    """Scan a file or directory.
+
+    Returns (findings, files_scanned). The count is handy for the report, since
+    "no secrets found" means something very different after 2 files than
+    after 900.
+    """
     results = []
+    scanned = 0
     for path in walk_files(root):
+        scanned += 1
         results.extend(scan_file(path, use_entropy))
     results.sort(key=lambda f: (f.path, f.line_number))
-    return results
+    return results, scanned
