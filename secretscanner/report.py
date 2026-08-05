@@ -41,17 +41,23 @@ def mask(secret, keep=4):
     return secret[:keep] + "..." + secret[-keep:]
 
 
-def print_report(findings, scanned_count, show_secrets=False, stream=None):
+def plural(count, word):
+    return "%d %s%s" % (count, word, "" if count == 1 else "s")
+
+
+def print_report(findings, scanned_count, show_secrets=False, stream=None,
+                 unit="file"):
     """Write the human readable report.
 
     Findings are grouped by file, and within a file the worst ones come first.
+    unit is what scanned_count counts, which is commits in history mode.
     """
     stream = stream or sys.stdout
     color = use_color(stream)
 
     if not findings:
-        stream.write("No secrets found. Scanned %d file%s.\n"
-                     % (scanned_count, "" if scanned_count == 1 else "s"))
+        stream.write("No secrets found. Scanned %s.\n"
+                     % plural(scanned_count, unit))
         return
 
     by_file = {}
@@ -70,13 +76,17 @@ def print_report(findings, scanned_count, show_secrets=False, stream=None):
             if f.entropy is not None:
                 stream.write("      %s\n"
                              % paint("entropy %.2f bits/char" % f.entropy, "dim", color))
+            if f.commit is not None:
+                stream.write("      %s\n"
+                             % paint("introduced in commit %s" % f.commit[:10],
+                                     "dim", color))
 
     counts = summarize(findings)
     stream.write("\n" + paint("-" * 52, "dim", color) + "\n")
-    stream.write("%d finding%s in %d file%s (%d scanned)\n"
-                 % (len(findings), "" if len(findings) == 1 else "s",
-                    len(by_file), "" if len(by_file) == 1 else "s",
-                    scanned_count))
+    stream.write("%s in %s (%s scanned)\n"
+                 % (plural(len(findings), "finding"),
+                    plural(len(by_file), "file"),
+                    plural(scanned_count, unit)))
     stream.write("  high: %d   medium: %d   low: %d\n"
                  % (counts["high"], counts["medium"], counts["low"]))
     if not show_secrets:
@@ -91,7 +101,8 @@ def summarize(findings):
     return counts
 
 
-def print_json(findings, scanned_count, show_secrets=False, stream=None):
+def print_json(findings, scanned_count, show_secrets=False, stream=None,
+               unit="file"):
     """Dump the same findings as JSON for scripts and CI to consume."""
     stream = stream or sys.stdout
 
@@ -103,7 +114,7 @@ def print_json(findings, scanned_count, show_secrets=False, stream=None):
         items.append(item)
 
     payload = {
-        "files_scanned": scanned_count,
+        "%ss_scanned" % unit: scanned_count,
         "findings_count": len(findings),
         "summary": summarize(findings),
         "masked": not show_secrets,
