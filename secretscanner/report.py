@@ -1,5 +1,6 @@
-"""Terminal output."""
+"""Terminal output and the JSON report."""
 
+import json
 import os
 import sys
 
@@ -88,3 +89,25 @@ def summarize(findings):
     for f in findings:
         counts[f.confidence] += 1
     return counts
+
+
+def print_json(findings, scanned_count, show_secrets=False, stream=None):
+    """Dump the same findings as JSON for scripts and CI to consume."""
+    stream = stream or sys.stdout
+
+    items = []
+    for f in findings:
+        item = f.as_dict()
+        if not show_secrets:
+            item["match"] = mask(item["match"])
+        items.append(item)
+
+    payload = {
+        "files_scanned": scanned_count,
+        "findings_count": len(findings),
+        "summary": summarize(findings),
+        "masked": not show_secrets,
+        "findings": items,
+    }
+    json.dump(payload, stream, indent=2)
+    stream.write("\n")

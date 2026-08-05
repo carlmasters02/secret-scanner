@@ -3,7 +3,7 @@ import os
 import sys
 
 from . import __version__
-from .report import CONFIDENCE_RANK, print_report
+from .report import CONFIDENCE_RANK, print_json, print_report
 from .scanner import scan_path
 
 
@@ -14,6 +14,11 @@ def build_parser():
                     "patterns and entropy analysis.",
     )
     parser.add_argument("path", help="file or directory to scan")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print results as JSON instead of the usual report",
+    )
     parser.add_argument(
         "--min-confidence",
         choices=["low", "medium", "high"],
@@ -58,7 +63,10 @@ def main(argv=None):
     )
     findings = filter_by_confidence(findings, args.min_confidence)
 
-    print_report(findings, scanned, show_secrets=args.show_secrets)
+    if args.json:
+        print_json(findings, scanned, show_secrets=args.show_secrets)
+    else:
+        print_report(findings, scanned, show_secrets=args.show_secrets)
 
     # Non-zero exit when something turned up, so this can gate a CI step.
     return 1 if findings else 0
