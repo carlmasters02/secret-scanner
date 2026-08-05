@@ -30,6 +30,11 @@ def build_parser():
         action="store_true",
         help="print matched values in full instead of masking them",
     )
+    parser.add_argument(
+        "--no-gitignore",
+        action="store_true",
+        help="scan files that .gitignore excludes",
+    )
     parser.add_argument("--version", action="version", version=__version__)
     return parser
 
@@ -46,7 +51,11 @@ def main(argv=None):
         print("error: no such file or directory: %s" % args.path, file=sys.stderr)
         return 2
 
-    findings, scanned = scan_path(args.path, use_entropy=not args.no_entropy)
+    findings, scanned = scan_path(
+        args.path,
+        use_entropy=not args.no_entropy,
+        use_gitignore=not args.no_gitignore,
+    )
     findings = filter_by_confidence(findings, args.min_confidence)
 
     print_report(findings, scanned, show_secrets=args.show_secrets)

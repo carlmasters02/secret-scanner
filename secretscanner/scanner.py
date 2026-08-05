@@ -3,6 +3,7 @@
 import os
 
 from .entropy import find_entropy_matches
+from .gitignore import IgnoreStack
 from .patterns import find_pattern_matches
 
 # Directories that are never worth scanning. These get skipped even without a
@@ -124,7 +125,7 @@ def scan_file(path, use_entropy=True):
     return findings
 
 
-def walk_files(root):
+def walk_files(root, use_gitignore=True):
     """Yield every scannable file under root.
 
     Handles being pointed at a single file too, since that is a convenient way
@@ -135,16 +136,30 @@ def walk_files(root):
             yield root
         return
 
+    ignores = IgnoreStack(root) if use_gitignore else None
+
     for dirpath, dirnames, filenames in os.walk(root):
+        if ignores is not None and ".gitignore" in filenames:
+            ignores.add_file(os.path.join(dirpath, ".gitignore"))
+
         # Trimming dirnames in place stops os.walk from descending into them.
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        if ignores is not None:
+            dirnames[:] = [
+                d for d in dirnames
+                if not ignores.is_ignored(os.path.join(dirpath, d), is_dir=True)
+            ]
+        dirnames.sort()
+
         for name in sorted(filenames):
             full = os.path.join(dirpath, name)
+            if ignores is not None and ignores.is_ignored(full):
+                continue
             if not should_skip_file(full):
                 yield full
 
 
-def scan_path(root, use_entropy=True):
+def scan_path(root, use_entropy=True, use_gitignore=True):
     """Scan a file or directory.
 
     Returns (findings, files_scanned). The count is handy for the report, since
@@ -153,7 +168,7 @@ def scan_path(root, use_entropy=True):
     """
     results = []
     scanned = 0
-    for path in walk_files(root):
+    for path in walk_files(root, use_gitignore):
         scanned += 1
         results.extend(scan_file(path, use_entropy))
     results.sort(key=lambda f: (f.path, f.line_number))
