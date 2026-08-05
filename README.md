@@ -34,8 +34,9 @@ secret-scanner .
 ## Usage
 
 ```
-secret-scanner [-h] [--json] [--min-confidence {low,medium,high}]
-               [--no-entropy] [--show-secrets] [--no-gitignore] [--version]
+secret-scanner [-h] [--json] [--history] [--max-commits N]
+               [--min-confidence {low,medium,high}] [--no-entropy]
+               [--show-secrets] [--no-gitignore] [--version]
                path
 ```
 
@@ -77,6 +78,35 @@ Turn off entropy analysis when the noise is not worth it:
 ```bash
 secret-scanner . --no-entropy
 ```
+
+### Scanning git history
+
+Deleting a secret from a file does not remove it from the repository. It is
+still in whatever commit added it, and anyone who clones the repo still gets
+it. `--history` looks there instead of at the working tree:
+
+```bash
+secret-scanner . --history
+```
+
+```
+app.py
+  line 2     HIGH   aws_access_key_id
+      AKIA...MPLE
+      introduced in commit 0fffa3d91a
+
+----------------------------------------------------
+1 finding in 1 file (3 commits scanned)
+  high: 1   medium: 0   low: 0
+```
+
+It runs `git log --all -p -U0` and scans the lines each commit added, so it
+covers every branch and not just the one checked out. Use `--max-commits N` to
+limit how far back it goes (the default is 500, since old repos can produce a
+lot of patch text).
+
+If the same secret was added in more than one commit it is reported once,
+attributed to the earliest commit that introduced it.
 
 Machine readable output:
 
@@ -226,8 +256,6 @@ python3 -m pytest
 
 Worth knowing before trusting it:
 
-- It scans the working tree, not git history. A secret that was committed and
-  later removed will not show up.
 - Every check is line by line, so a private key body split across lines is
   detected by its header only.
 - The generic assignment pattern is deliberately broad and will flag test
